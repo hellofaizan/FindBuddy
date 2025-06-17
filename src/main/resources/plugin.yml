@@ -1,0 +1,27 @@
+name: FindBuddy
+version: '1.0.0'
+main: in.mohammadfaizan.minecraft.FindBuddy
+api-version: '1.21'
+load: STARTUP
+authors: [Mohammad Faizan]
+description: Locate your Buddy in the Minecraft Server
+website: https://mohammadfaizan.in
+
+commands:
+  findbuddy:
+    description: Find a player's relative location and distance
+    usage: /findbuddy <player>
+    permission: findbuddy.find
+    permission-message: "You don't have permission to use this command!"
+
+permissions:
+  findbuddy.find:
+    description: Allows using the findbuddy command
+    default: op
+    
+  findbuddy.*:
+    description: Gives access to all FindBuddy commands
+    default: op
+    children:
+      findbuddy.locate: true
+      findbuddy.find: true
