@@ -12,10 +12,15 @@ import net.kyori.adventure.text.format.NamedTextColor
 import net.kyori.adventure.text.format.TextDecoration
 import java.util.logging.Level
 import kotlin.math.*
-import java.util.ArrayList
+import org.bukkit.scheduler.BukkitRunnable
+import org.bukkit.plugin.java.JavaPlugin
+import java.util.*
 
 class FindBuddyCommand : CommandExecutor, TabCompleter {
     
+    // Track active tasks per player
+    private val activeTasks = mutableMapOf<UUID, BukkitRunnable>()
+
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         try {
             // Permission check
@@ -83,7 +88,9 @@ class FindBuddyCommand : CommandExecutor, TabCompleter {
             }
 
             val targetLocation = targetPlayer.location
-            val distance = sender.location.distance(targetLocation)
+            val dx = sender.location.x - targetLocation.x
+            val dz = sender.location.z - targetLocation.z
+            val distance = kotlin.math.sqrt(dx * dx + dz * dz)
             val direction = getDirection(sender.location, targetLocation)
             val compass = getCompassDirection(sender.location, targetLocation)
 
@@ -128,6 +135,59 @@ class FindBuddyCommand : CommandExecutor, TabCompleter {
                 )
             }
 
+            // Cancel any previous tracking task for this sender
+            activeTasks.remove(sender.uniqueId)?.cancel()
+
+            // Start a new repeating task to update the action bar
+            val plugin = JavaPlugin.getProvidingPlugin(this::class.java)
+            val task = object : BukkitRunnable() {
+                override fun run() {
+                    if (!sender.isOnline || !targetPlayer.isOnline) {
+                        this.cancel(); activeTasks.remove(sender.uniqueId); return
+                    }
+                    if (sender.world.name != targetPlayer.world.name) {
+                        this.cancel(); activeTasks.remove(sender.uniqueId); return
+                    }
+                    val dx = sender.location.x - targetPlayer.location.x
+                    val dz = sender.location.z - targetPlayer.location.z
+                    val distance = kotlin.math.sqrt(dx * dx + dz * dz)
+                    if (distance > 25.0) {
+                        val actionBarMsg = net.kyori.adventure.text.Component.text()
+                            .append(
+                                net.kyori.adventure.text.Component.text(targetPlayer.name)
+                                    .color(NamedTextColor.AQUA)
+                                    .decorate(TextDecoration.BOLD)
+                            )
+                            .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
+                            .append(
+                                net.kyori.adventure.text.Component.text("${distance.toInt()} blocks")
+                                    .color(NamedTextColor.YELLOW)
+                            )
+                            .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
+                            .append(
+                                net.kyori.adventure.text.Component.text("( ")
+                                    .color(NamedTextColor.GRAY)
+                            )
+                            .append(
+                                net.kyori.adventure.text.Component.text("🧭 ${getDirection(sender.location, targetPlayer.location)}")
+                                    .color(NamedTextColor.GOLD)
+                                    .decorate(TextDecoration.BOLD)
+                            )
+                            .append(
+                                net.kyori.adventure.text.Component.text(")")
+                                    .color(NamedTextColor.GRAY)
+                            )
+                            .build()
+                        sender.sendActionBar(actionBarMsg)
+                    } else {
+                        sender.sendActionBar("")
+                        this.cancel(); activeTasks.remove(sender.uniqueId)
+                    }
+                }
+            }
+            task.runTaskTimer(plugin, 0L, 5L) // every 0.25 seconds
+            activeTasks[sender.uniqueId] = task
+
             return true
 
         } catch (e: Exception) {
@@ -146,15 +206,29 @@ class FindBuddyCommand : CommandExecutor, TabCompleter {
         label: String,
         args: Array<out String>
     ): List<String> {
-        val list = ArrayList<String>()
-        
-        if (args.size == 1) {
-            for (p in Bukkit.getOnlinePlayers()) {
-                list.add(p.name)
-            }
+        // Only provide suggestions for the first argument and if sender is a player
+        if (args.size != 1 || sender !is Player) {
+            return emptyList()
         }
-        
-        return list
+
+        val partialName = args[0].lowercase()
+        val suggestions = mutableListOf<String>()
+
+        // Get all online players in the same world and filter based on input
+        Bukkit.getOnlinePlayers()
+            .asSequence()
+            .filter { player ->
+                // Exclude the sender and players in different worlds
+                player.uniqueId != sender.uniqueId &&
+                player.world.name == sender.world.name &&
+                // Include players whose names start with the partial input
+                (partialName.isEmpty() || player.name.lowercase().startsWith(partialName))
+            }
+            .map { it.name }
+            .sorted() // Sort alphabetically
+            .toCollection(suggestions)
+
+        return suggestions
     }
 
     private fun getDirection(from: Location, to: Location): String {
@@ -183,14 +257,14 @@ class FindBuddyCommand : CommandExecutor, TabCompleter {
         val normalizedAngle = if (angle < 0) angle + 360 else angle
         
         return when {
-            normalizedAngle >= 157.5 && normalizedAngle < 202.5 -> "SW (225°)"
-            normalizedAngle >= 202.5 && normalizedAngle < 247.5 -> "W (270°)"
-            normalizedAngle >= 247.5 && normalizedAngle < 292.5 -> "NW (315°)"
-            normalizedAngle >= 292.5 || normalizedAngle < 22.5 -> "N (0°)"
-            normalizedAngle >= 22.5 && normalizedAngle < 67.5 -> "NE (45°)"
-            normalizedAngle >= 67.5 && normalizedAngle < 112.5 -> "E (90°)"
-            normalizedAngle >= 112.5 && normalizedAngle < 157.5 -> "SE (135°)"
-            else -> "S (180°)"
+            normalizedAngle >= 337.5 || normalizedAngle < 22.5 -> "E (90°)"
+            normalizedAngle >= 22.5 && normalizedAngle < 67.5 -> "SE (135°)"
+            normalizedAngle >= 67.5 && normalizedAngle < 112.5 -> "S (180°)"
+            normalizedAngle >= 112.5 && normalizedAngle < 157.5 -> "SW (225°)"
+            normalizedAngle >= 157.5 && normalizedAngle < 202.5 -> "W (270°)"
+            normalizedAngle >= 202.5 && normalizedAngle < 247.5 -> "NW (315°)"
+            normalizedAngle >= 247.5 && normalizedAngle < 292.5 -> "N (0°)"
+            else -> "NE (45°)"
         }
     }
 
