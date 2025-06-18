@@ -9,8 +9,8 @@ website: https://mohammadfaizan.in
 
 commands:
   findbuddy:
-    description: FindBuddy commands - locate players or cancel tracking
-    usage: /findbuddy <locate|cancel|accept|decline> [player]
+    description: FindBuddy commands - locate players, cancel tracking, or cleanup compasses
+    usage: /findbuddy <locate|cancel|accept|decline|cleanup> [player]
     permission: findbuddy.find
     permission-message: "You don't have permission to use this command!"
     aliases: [fb, find]
@@ -20,9 +20,14 @@ permissions:
     description: Allows using the findbuddy command
     default: true
     
+  findbuddy.cleanup:
+    description: Allows using the cleanup command to remove compasses from other players
+    default: op
+    
   findbuddy.*:
     description: Gives access to all FindBuddy commands
     default: true
     children:
       findbuddy.locate: true
       findbuddy.find: true
+      findbuddy.cleanup: true

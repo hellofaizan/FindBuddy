@@ -2,6 +2,8 @@ package `in`.mohammadfaizan.minecraft
 
 import org.bukkit.plugin.java.JavaPlugin
 import `in`.mohammadfaizan.minecraft.commands.FindBuddyCommand
+import `in`.mohammadfaizan.minecraft.listeners.CompassListener
+import `in`.mohammadfaizan.minecraft.listeners.PlayerListener
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.TabCompleter
 
@@ -27,8 +29,9 @@ class FindBuddy : JavaPlugin() {
         // Register command programmatically
         registerCommand("findbuddy", findBuddyCommand, findBuddyCommand, "findbuddy.find")
         
-        // Register event listener for compass management
-        server.pluginManager.registerEvents(findBuddyCommand, this)
+        // Register event listeners
+        server.pluginManager.registerEvents(CompassListener(), this)
+        server.pluginManager.registerEvents(PlayerListener(), this)
         
         logger.info("FindBuddy plugin has been enabled!")
     }
@@ -47,6 +50,6 @@ class FindBuddy : JavaPlugin() {
         command.setExecutor(executor)
         command.tabCompleter = tabCompleter
         command.permission = permission
-        command.usage = "/$name <locate|cancel> [player]"
+        command.usage = "/$name <locate|cancel|accept|decline> [player]"
     }
 }
