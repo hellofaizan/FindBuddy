@@ -18,11 +18,11 @@ commands:
 permissions:
   findbuddy.find:
     description: Allows using the findbuddy command
-    default: op
+    default: true
     
   findbuddy.*:
     description: Gives access to all FindBuddy commands
-    default: op
+    default: true
     children:
       findbuddy.locate: true
       findbuddy.find: true
