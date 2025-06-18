@@ -9,10 +9,11 @@ website: https://mohammadfaizan.in
 
 commands:
   findbuddy:
-    description: Find a player's relative location and distance
-    usage: /findbuddy <player>
+    description: FindBuddy commands - locate players or cancel tracking
+    usage: /findbuddy <locate|cancel> [player]
     permission: findbuddy.find
     permission-message: "You don't have permission to use this command!"
+    aliases: [fb, find]
 
 permissions:
   findbuddy.find:

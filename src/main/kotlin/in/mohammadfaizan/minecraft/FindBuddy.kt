@@ -14,6 +14,9 @@ class FindBuddy : JavaPlugin() {
         // Register command programmatically
         registerCommand("findbuddy", findBuddyCommand, findBuddyCommand, "findbuddy.find")
         
+        // Register event listener for compass management
+        server.pluginManager.registerEvents(findBuddyCommand, this)
+        
         logger.info("FindBuddy plugin has been enabled!")
     }
 
@@ -31,6 +34,6 @@ class FindBuddy : JavaPlugin() {
         command.setExecutor(executor)
         command.tabCompleter = tabCompleter
         command.permission = permission
-        command.usage = "/$name <player>"
+        command.usage = "/$name <locate|cancel> [player]"
     }
 }
