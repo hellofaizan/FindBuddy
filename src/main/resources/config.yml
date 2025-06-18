@@ -1,0 +1,26 @@
+# FindBuddy Configuration
+# This file contains all configurable settings for the FindBuddy plugin
+
+# Tracking Settings
+tracking:
+  # Distance in blocks when tracking stops (player reaches target)
+  # Default: 25 blocks
+  stop_distance: 25
+  
+  # Notify target player when someone starts tracking them
+  # Default: true
+  notify_target: true
+  
+  # Require tracking requests (like TPA system)
+  # Default: false (direct tracking)
+  require_requests: true
+  
+  # Request timeout in seconds
+  # Default: 60 seconds
+  request_timeout: 90
+
+# Compass Settings
+compass:
+  # Cooldown in seconds for compass refresh (right-click)
+  # Default: 20 seconds
+  refresh_cooldown: 20 

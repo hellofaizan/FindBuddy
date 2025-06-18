@@ -7,7 +7,20 @@ import org.bukkit.command.TabCompleter
 
 class FindBuddy : JavaPlugin() {
 
+    companion object {
+        lateinit var instance: FindBuddy
+            private set
+    }
+
     override fun onEnable() {
+        instance = this
+        
+        // Save default config if it doesn't exist
+        saveDefaultConfig()
+        
+        // Reload config to ensure it's loaded
+        reloadConfig()
+        
         // Create command executor
         val findBuddyCommand = FindBuddyCommand()
         

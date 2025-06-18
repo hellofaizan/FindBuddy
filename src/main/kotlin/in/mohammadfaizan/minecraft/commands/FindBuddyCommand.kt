@@ -1,5 +1,6 @@
 package `in`.mohammadfaizan.minecraft.commands
 
+import `in`.mohammadfaizan.minecraft.FindBuddy
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.command.Command
@@ -46,8 +47,41 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
     // Track compass cooldowns per player
     private val compassCooldowns = mutableMapOf<UUID, Long>()
 
+    // Track pending tracking requests
+    private val pendingRequests = mutableMapOf<UUID, TrackingRequest>()
+
     // Custom compass identifier
     private val compassKey = NamespacedKey(JavaPlugin.getProvidingPlugin(FindBuddyCommand::class.java), "findbuddy_compass")
+
+    // Data class for tracking requests
+    data class TrackingRequest(
+        val requester: UUID,
+        val requesterName: String,
+        val target: UUID,
+        val targetName: String,
+        val timestamp: Long
+    )
+
+    // Configuration getters
+    private fun getStopDistance(): Int {
+        return FindBuddy.instance.config.getInt("tracking.stop_distance", 25)
+    }
+    
+    private fun getCompassCooldown(): Long {
+        return FindBuddy.instance.config.getLong("compass.refresh_cooldown", 20) * 1000 // Convert to milliseconds
+    }
+    
+    private fun shouldNotifyTarget(): Boolean {
+        return FindBuddy.instance.config.getBoolean("tracking.notify_target", true)
+    }
+    
+    private fun requireRequests(): Boolean {
+        return FindBuddy.instance.config.getBoolean("tracking.require_requests", false)
+    }
+    
+    private fun getRequestTimeout(): Long {
+        return FindBuddy.instance.config.getLong("tracking.request_timeout", 60) * 1000 // Convert to milliseconds
+    }
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         try {
@@ -72,7 +106,7 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
             // Usage check
             if (args.isEmpty()) {
                 sender.sendMessage(
-                    Component.text("Usage: /findbuddy <locate|cancel> [player]")
+                    Component.text("Usage: /findbuddy <locate|cancel|accept|decline> [player]")
                         .color(NamedTextColor.GOLD)
                         .decorate(TextDecoration.BOLD)
                 )
@@ -96,13 +130,19 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
                 "cancel" -> {
                     return cancelTracking(sender)
                 }
+                "accept" -> {
+                    return acceptTrackingRequest(sender)
+                }
+                "decline" -> {
+                    return declineTrackingRequest(sender)
+                }
                 else -> {
                     sender.sendMessage(
                         Component.text("Unknown subcommand: $subcommand")
                             .color(NamedTextColor.RED)
                     )
                     sender.sendMessage(
-                        Component.text("Usage: /findbuddy <locate|cancel> [player]")
+                        Component.text("Usage: /findbuddy <locate|cancel|accept|decline> [player]")
                             .color(NamedTextColor.GOLD)
                             .decorate(TextDecoration.BOLD)
                     )
@@ -163,7 +203,7 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
             val dz = sender.location.z - targetLocation.z
             val distance = kotlin.math.sqrt(dx * dx + dz * dz)
 
-        if (distance <= 25.0) {
+        if (distance <= getStopDistance()) {
             sender.sendMessage(
                 Component.text("🎯 ")
                     .color(NamedTextColor.GREEN)
@@ -193,6 +233,155 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
             return true
         }
 
+        // Check if requests are required
+        if (requireRequests()) {
+            return sendTrackingRequest(sender, targetPlayer)
+        }
+
+        // Direct tracking (original behavior)
+        return startTracking(sender, targetPlayer)
+    }
+
+    private fun sendTrackingRequest(sender: Player, targetPlayer: Player): Boolean {
+        // Check if there's already a pending request
+        val existingRequest = pendingRequests[targetPlayer.uniqueId]
+        if (existingRequest != null && existingRequest.requester == sender.uniqueId) {
+                sender.sendMessage(
+                Component.text("⏰ You already have a pending tracking request with ")
+                    .color(NamedTextColor.YELLOW)
+                    .append(
+                        Component.text(targetPlayer.name)
+                            .color(NamedTextColor.AQUA)
+                            .decorate(TextDecoration.BOLD)
+                    )
+                    .append(Component.text("!").color(NamedTextColor.YELLOW))
+            )
+            return true
+        }
+        
+        // Create tracking request
+        val request = TrackingRequest(
+            requester = sender.uniqueId,
+            requesterName = sender.name,
+            target = targetPlayer.uniqueId,
+            targetName = targetPlayer.name,
+            timestamp = System.currentTimeMillis()
+        )
+        
+        pendingRequests[targetPlayer.uniqueId] = request
+        
+        // Send request to target player
+        targetPlayer.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        targetPlayer.sendMessage(
+            Component.text("")
+                .append(
+                    Component.text("§e⚡ Tracking Request")
+                        .decorate(TextDecoration.BOLD)
+                )
+        )
+        targetPlayer.sendMessage(
+            Component.text("§7")
+                .append(
+                    Component.text(sender.name)
+                        .color(NamedTextColor.AQUA)
+                        .decorate(TextDecoration.BOLD)
+                )
+                .append(Component.text("§7 wants to track your location"))
+        )
+        targetPlayer.sendMessage(Component.text(""))
+        
+        // Send clickable accept/decline buttons
+        val acceptButton = Component.text("§a[ACCEPT]")
+            .decorate(TextDecoration.BOLD)
+            .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/findbuddy accept"))
+            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                Component.text("§7Click to §aACCEPT§7 the tracking request\n")
+                    .append(Component.text("§7This will allow §b" + sender.name + "§7 to track you"))
+            ))
+        
+        val declineButton = Component.text("§c[DECLINE]")
+            .decorate(TextDecoration.BOLD)
+            .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/findbuddy decline"))
+            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                Component.text("§7Click to §cDECLINE§7 the tracking request\n")
+                    .append(Component.text("§7This will deny §b" + sender.name + "§7's request"))
+            ))
+        
+        targetPlayer.sendMessage(
+            Component.text("           ")
+                .append(acceptButton)
+                .append(Component.text("     "))
+                .append(declineButton)
+        )
+        targetPlayer.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        
+        // Confirm to sender
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        sender.sendMessage(
+            Component.text("")
+                .append(
+                    Component.text("§e⚡ Tracking Request Sent")
+                        .decorate(TextDecoration.BOLD)
+                )
+        )
+        sender.sendMessage(
+            Component.text("§7Request sent to ")
+                .append(
+                    Component.text(targetPlayer.name)
+                        .color(NamedTextColor.AQUA)
+                        .decorate(TextDecoration.BOLD)
+                )
+                .append(Component.text("§7!"))
+        )
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        
+        // Schedule request timeout
+            val plugin = JavaPlugin.getProvidingPlugin(this::class.java)
+        Bukkit.getScheduler().runTaskLater(plugin, object : Runnable {
+                override fun run() {
+                val currentRequest = pendingRequests[targetPlayer.uniqueId]
+                if (currentRequest != null && currentRequest.requester == sender.uniqueId) {
+                    pendingRequests.remove(targetPlayer.uniqueId)
+                    
+                    // Notify both players about timeout
+                    val requester = Bukkit.getPlayer(sender.uniqueId)
+                    requester?.sendMessage(
+                        Component.text("⏰ Tracking request to ")
+                            .color(NamedTextColor.YELLOW)
+                            .append(
+                                Component.text(targetPlayer.name)
+                                    .color(NamedTextColor.AQUA)
+                                    .decorate(TextDecoration.BOLD)
+                            )
+                            .append(Component.text(" timed out!").color(NamedTextColor.YELLOW))
+                    )
+                    
+                    targetPlayer.sendMessage(
+                        Component.text("⏰ Tracking request from ")
+                                    .color(NamedTextColor.YELLOW)
+                            .append(
+                                Component.text(sender.name)
+                                    .color(NamedTextColor.AQUA)
+                                    .decorate(TextDecoration.BOLD)
+                            )
+                            .append(Component.text(" timed out!").color(NamedTextColor.YELLOW))
+                    )
+                }
+            }
+        }, getRequestTimeout() / 50) // Convert milliseconds to ticks (20 ticks per second)
+
+            return true
+    }
+    
+    private fun startTracking(sender: Player, targetPlayer: Player): Boolean {
         // Cancel any previous tracking task for this sender
         activeTasks.remove(sender.uniqueId)?.cancel()
         removeCompass(sender)
@@ -237,89 +426,25 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
         if (hasCompass) {
             updateCompassDirection(sender, targetPlayer)
         }
-
-        // Start a new repeating task to update the action bar and compass
-            val plugin = JavaPlugin.getProvidingPlugin(this::class.java)
-            val task = object : BukkitRunnable() {
-                override fun run() {
-                    if (!sender.isOnline || !targetPlayer.isOnline) {
-                    this.cancel(); 
-                    activeTasks.remove(sender.uniqueId)
-                    removeCompass(sender)
-                    resetCompassTarget(sender)
-                    return
-                    }
-                    if (sender.world.name != targetPlayer.world.name) {
-                    this.cancel(); 
-                    activeTasks.remove(sender.uniqueId)
-                    removeCompass(sender)
-                    resetCompassTarget(sender)
-                    return
-                    }
-                
-                    val dx = sender.location.x - targetPlayer.location.x
-                    val dz = sender.location.z - targetPlayer.location.z
-                    val distance = kotlin.math.sqrt(dx * dx + dz * dz)
-                
-                    if (distance > 25.0) {
-                        val hasCompass = compassItems.containsKey(sender.uniqueId)
-                        val compassColor = if (hasCompass) NamedTextColor.LIGHT_PURPLE else NamedTextColor.GRAY
-                        
-                        val actionBarMsg = net.kyori.adventure.text.Component.text()
-                            .append(
-                                net.kyori.adventure.text.Component.text("Tracking ")
-                                    .color(NamedTextColor.GRAY)
-                            )
-                            .append(
-                                net.kyori.adventure.text.Component.text(targetPlayer.name)
-                                    .color(NamedTextColor.AQUA)
-                                    .decorate(TextDecoration.BOLD)
-                            )
-                            .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
-                            .append(
-                                net.kyori.adventure.text.Component.text("${distance.toInt()} blocks")
-                                    .color(NamedTextColor.YELLOW)
-                            )
-                            .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
-                            .append(
-                                net.kyori.adventure.text.Component.text("( ")
-                                    .color(NamedTextColor.GRAY)
-                            )
-                            .append(
-                                net.kyori.adventure.text.Component.text("🧭 ${getDirection(sender.location, targetPlayer.location)}")
-                                    .color(NamedTextColor.GOLD)
-                                    .decorate(TextDecoration.BOLD)
-                            )
-                            .append(
-                                net.kyori.adventure.text.Component.text(")")
-                                    .color(NamedTextColor.GRAY)
-                            )
-                            .build()
-                        sender.sendActionBar(actionBarMsg)
-                    } else {
-                    // Target reached - remove compass and stop tracking
-                        sender.sendActionBar("")
-                    sender.sendMessage(
-                        Component.text("🎯 ")
-                            .color(NamedTextColor.GREEN)
-                            .append(
-                                Component.text(targetPlayer.name)
-                                    .color(NamedTextColor.AQUA)
-                                    .decorate(TextDecoration.BOLD)
-                            )
-                            .append(Component.text(" is nearby!").color(NamedTextColor.GREEN))
+        
+        // Notify target player if enabled in config
+        if (shouldNotifyTarget()) {
+            targetPlayer.sendMessage(
+                Component.text("👁️ ")
+                    .color(NamedTextColor.YELLOW)
+                    .append(
+                        Component.text(sender.name)
+                            .color(NamedTextColor.AQUA)
+                            .decorate(TextDecoration.BOLD)
                     )
-                    removeCompass(sender)
-                    resetCompassTarget(sender)
-                    this.cancel(); 
-                    activeTasks.remove(sender.uniqueId)
-                    }
-                }
-            }
-            task.runTaskTimer(plugin, 0L, 5L) // every 0.25 seconds
-            activeTasks[sender.uniqueId] = task
-
-            return true
+                    .append(Component.text(" is now tracking you!").color(NamedTextColor.YELLOW))
+            )
+        }
+        
+        // Start tracking task
+        startTrackingTask(sender, targetPlayer)
+        
+        return true
     }
 
     private fun cancelTracking(sender: Player): Boolean {
@@ -454,7 +579,7 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
         // Check cooldown (20 seconds = 20000 milliseconds)
         val currentTime = System.currentTimeMillis()
         val lastUpdate = compassCooldowns[player.uniqueId] ?: 0L
-        val cooldownRemaining = (lastUpdate + 20000) - currentTime
+        val cooldownRemaining = (lastUpdate + getCompassCooldown()) - currentTime
         
         if (cooldownRemaining > 0) {
             val secondsRemaining = (cooldownRemaining / 1000.0).toInt()
@@ -505,7 +630,7 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
         return when (args.size) {
             1 -> {
                 // Suggest subcommands
-                listOf("locate", "cancel").filter {
+                listOf("locate", "cancel", "accept", "decline").filter {
                     it.startsWith(args[0].lowercase())
                 }
             }
@@ -656,6 +781,46 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
         activeTasks.remove(player.uniqueId)?.cancel()
         removeCompass(player)
         resetCompassTarget(player)
+        
+        // Clean up pending requests
+        val pendingRequest = pendingRequests[player.uniqueId]
+        if (pendingRequest != null) {
+            pendingRequests.remove(player.uniqueId)
+            
+            // Notify requester that target left
+            val requester = Bukkit.getPlayer(pendingRequest.requester)
+            requester?.sendMessage(
+                Component.text("📱 ")
+                    .color(NamedTextColor.YELLOW)
+                    .append(
+                        Component.text(player.name)
+                            .color(NamedTextColor.AQUA)
+                            .decorate(TextDecoration.BOLD)
+                    )
+                    .append(Component.text(" left the server. Tracking request cancelled.").color(NamedTextColor.YELLOW))
+            )
+        }
+        
+        // Clean up requests sent by this player
+        pendingRequests.entries.removeIf { (_, request) ->
+            if (request.requester == player.uniqueId) {
+                // Notify target that requester left
+                val target = Bukkit.getPlayer(request.target)
+                target?.sendMessage(
+                    Component.text("📱 ")
+                        .color(NamedTextColor.YELLOW)
+                        .append(
+                            Component.text(player.name)
+                                .color(NamedTextColor.AQUA)
+                                .decorate(TextDecoration.BOLD)
+                        )
+                        .append(Component.text(" left the server. Tracking request cancelled.").color(NamedTextColor.YELLOW))
+                )
+                true // Remove this request
+            } else {
+                false // Keep other requests
+            }
+        }
     }
 
     @EventHandler
@@ -732,5 +897,219 @@ class FindBuddyCommand : CommandExecutor, TabCompleter, Listener {
                 false // Keep other items
             }
         }
+    }
+
+    private fun acceptTrackingRequest(sender: Player): Boolean {
+        val request = pendingRequests[sender.uniqueId]
+        if (request == null) {
+            sender.sendMessage(
+                Component.text("❌ You don't have any pending tracking requests!")
+                    .color(NamedTextColor.RED)
+            )
+            return true
+        }
+        
+        // Remove the request
+        pendingRequests.remove(sender.uniqueId)
+        
+        // Get the requester
+        val requester = Bukkit.getPlayer(request.requester)
+        if (requester == null || !requester.isOnline) {
+            sender.sendMessage(
+                Component.text("❌ The player who sent the request is no longer online!")
+                    .color(NamedTextColor.RED)
+            )
+            return true
+        }
+        
+        // Notify both players
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        sender.sendMessage(
+            Component.text("")
+                .append(
+                    Component.text("§a✓ Request Accepted")
+                        .decorate(TextDecoration.BOLD)
+                )
+        )
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        
+        requester.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        requester.sendMessage(
+            Component.text("")
+                .append(
+                    Component.text("§a✓ Request Accepted")
+                        .decorate(TextDecoration.BOLD)
+                )
+        )
+        requester.sendMessage(
+            Component.text("§7")
+                .append(
+                    Component.text(sender.name)
+                        .color(NamedTextColor.AQUA)
+                        .decorate(TextDecoration.BOLD)
+                )
+                .append(Component.text("§7 accepted your tracking request"))
+        )
+        requester.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        
+        // Start tracking
+        return startTracking(requester, sender)
+    }
+    
+    private fun declineTrackingRequest(sender: Player): Boolean {
+        val request = pendingRequests[sender.uniqueId]
+        if (request == null) {
+            sender.sendMessage(
+                Component.text("§c✗ You don't have any pending tracking requests!")
+                    .color(NamedTextColor.RED)
+            )
+            return true
+        }
+        
+        // Remove the request
+        pendingRequests.remove(sender.uniqueId)
+        
+        // Get the requester
+        val requester = Bukkit.getPlayer(request.requester)
+        if (requester != null && requester.isOnline) {
+            requester.sendMessage(
+                Component.text("§7§m                                                    ")
+            )
+            requester.sendMessage(
+                Component.text("")
+                    .append(
+                        Component.text("§c✗ Request Declined")
+                            .decorate(TextDecoration.BOLD)
+                    )
+            )
+            requester.sendMessage(
+                Component.text("§7")
+                    .append(
+                        Component.text(sender.name)
+                            .color(NamedTextColor.AQUA)
+                            .decorate(TextDecoration.BOLD)
+                    )
+                    .append(Component.text("§7 declined your tracking request"))
+            )
+            requester.sendMessage(
+                Component.text("§7§m                                                    ")
+            )
+        }
+        
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        sender.sendMessage(
+            Component.text("")
+                .append(
+                    Component.text("§c✗ Request Declined")
+                        .decorate(TextDecoration.BOLD)
+                )
+        )
+        sender.sendMessage(
+            Component.text("§7You declined ")
+                .append(
+                    Component.text(request.requesterName)
+                        .color(NamedTextColor.AQUA)
+                        .decorate(TextDecoration.BOLD)
+                )
+                .append(Component.text("§7's tracking request"))
+        )
+        sender.sendMessage(
+            Component.text("§7§m                                                    ")
+        )
+        
+        return true
+    }
+    
+    private fun startTrackingTask(sender: Player, targetPlayer: Player) {
+        // Start a new repeating task to update the action bar and compass
+        val plugin = JavaPlugin.getProvidingPlugin(this::class.java)
+        val task = object : BukkitRunnable() {
+            override fun run() {
+                if (!sender.isOnline || !targetPlayer.isOnline) {
+                    this.cancel()
+                    activeTasks.remove(sender.uniqueId)
+                    removeCompass(sender)
+                    resetCompassTarget(sender)
+                    return
+                }
+                if (sender.world.name != targetPlayer.world.name) {
+                    this.cancel()
+                    activeTasks.remove(sender.uniqueId)
+                    removeCompass(sender)
+                    resetCompassTarget(sender)
+                    return
+                }
+            
+                val dx = sender.location.x - targetPlayer.location.x
+                val dz = sender.location.z - targetPlayer.location.z
+                val distance = kotlin.math.sqrt(dx * dx + dz * dz)
+            
+                if (distance > getStopDistance()) {
+                    val hasCompass = compassItems.containsKey(sender.uniqueId)
+                    val compassColor = if (hasCompass) NamedTextColor.LIGHT_PURPLE else NamedTextColor.GRAY
+                    
+                    val actionBarMsg = net.kyori.adventure.text.Component.text()
+                        .append(
+                            net.kyori.adventure.text.Component.text("Tracking ")
+                                .color(NamedTextColor.GRAY)
+                        )
+                        .append(
+                            net.kyori.adventure.text.Component.text(targetPlayer.name)
+                                .color(NamedTextColor.AQUA)
+                                .decorate(TextDecoration.BOLD)
+                        )
+                        .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
+                        .append(
+                            net.kyori.adventure.text.Component.text("${distance.toInt()} blocks")
+                                .color(NamedTextColor.YELLOW)
+                        )
+                        .append(net.kyori.adventure.text.Component.text(" - ").color(NamedTextColor.GRAY))
+                        .append(
+                            net.kyori.adventure.text.Component.text("( ")
+                                .color(NamedTextColor.GRAY)
+                        )
+                        .append(
+                            net.kyori.adventure.text.Component.text("🧭 ${getDirection(sender.location, targetPlayer.location)}")
+                                .color(NamedTextColor.GOLD)
+                                .decorate(TextDecoration.BOLD)
+                        )
+                        .append(
+                            net.kyori.adventure.text.Component.text(")")
+                                .color(NamedTextColor.GRAY)
+                        )
+                        .build()
+                    sender.sendActionBar(actionBarMsg)
+                } else {
+                    // Target reached - remove compass and stop tracking
+                    sender.sendActionBar("")
+                    sender.sendMessage(
+                        Component.text("🎯 ")
+                            .color(NamedTextColor.GREEN)
+                            .append(
+                                Component.text(targetPlayer.name)
+                                    .color(NamedTextColor.AQUA)
+                                    .decorate(TextDecoration.BOLD)
+                            )
+                            .append(Component.text(" is nearby!").color(NamedTextColor.GREEN))
+                    )
+                    removeCompass(sender)
+                    resetCompassTarget(sender)
+                    this.cancel()
+                    activeTasks.remove(sender.uniqueId)
+                }
+            }
+        }
+        task.runTaskTimer(plugin, 0L, 5L) // every 0.25 seconds
+        activeTasks[sender.uniqueId] = task
     }
 }
