@@ -14,6 +14,11 @@ commands:
     permission: findbuddy.find
     permission-message: "You don't have permission to use this command!"
     aliases: [fb, find]
+  waypoint:
+    description: Manage personal waypoints
+    usage: /waypoint <set|remove|locate> <name> [x] [y] [z] [world]
+    permission: findbuddy.waypoint
+    permission-message: "You don't have permission to use this command!"
 
 permissions:
   findbuddy.find:
@@ -31,3 +36,6 @@ permissions:
       findbuddy.locate: true
       findbuddy.find: true
       findbuddy.cleanup: true
+  findbuddy.waypoint:
+    description: Allows using the waypoint command
+    default: true

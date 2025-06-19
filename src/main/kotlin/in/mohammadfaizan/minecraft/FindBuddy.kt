@@ -2,6 +2,7 @@ package `in`.mohammadfaizan.minecraft
 
 import org.bukkit.plugin.java.JavaPlugin
 import `in`.mohammadfaizan.minecraft.commands.FindBuddyCommand
+import `in`.mohammadfaizan.minecraft.commands.WaypointCommand
 import `in`.mohammadfaizan.minecraft.listeners.CompassListener
 import `in`.mohammadfaizan.minecraft.listeners.PlayerListener
 import org.bukkit.command.CommandExecutor
@@ -28,6 +29,10 @@ class FindBuddy : JavaPlugin() {
         
         // Register command programmatically
         registerCommand("findbuddy", findBuddyCommand, findBuddyCommand, "findbuddy.find")
+        
+        // Register waypoint command
+        val waypointCommand = WaypointCommand()
+        registerCommand("waypoint", waypointCommand, waypointCommand, "findbuddy.waypoint")
         
         // Register event listeners
         server.pluginManager.registerEvents(CompassListener(), this)
