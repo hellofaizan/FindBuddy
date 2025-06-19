@@ -8,13 +8,14 @@
 
 ## 🌟 Features
 
-- 🧭 **Smart Compass** - Enchanted compass that points to tracked players
+- 🧭 **Smart Compass** - Enchanted compass that points to tracked players or custom waypoints
 - 📍 **Real-time Tracking** - Live distance and direction updates in action bar
 - 🔐 **Permission System** - Optional request-based tracking (like TPA)
 - 🌍 **Cross-World Support** - Works across different worlds and dimensions
 - ⚙️ **Highly Configurable** - Customize distances, cooldowns, and notifications
 - 🛡️ **Admin Tools** - Cleanup commands for server management
 - 🔄 **Auto Cleanup** - Automatic compass removal to prevent issues
+- 🗺️ **Waypoints** - Set, remove, and locate custom waypoints with a compass
 
 ---
 
@@ -40,6 +41,9 @@
 | `/findbuddy cancel` | Cancel current tracking |
 | `/findbuddy accept` | Accept a tracking request |
 | `/findbuddy decline` | Decline a tracking request |
+| `/waypoint set <name> <x> <y> <z> [world]` | Set a custom waypoint |
+| `/waypoint remove <name>` | Remove a custom waypoint |
+| `/waypoint locate <name>` | Get a compass to a waypoint (disappears when close) |
 
 ### Admin Commands
 | Command | Description |
@@ -47,6 +51,21 @@
 | `/findbuddy cleanup <player>` | Remove all tracking compasses from a player |
 
 **Aliases**: `/fb`, `/find`
+
+---
+
+## 🗺️ Waypoints
+
+Waypoints let you save and revisit custom locations easily:
+
+- **Set a waypoint:** `/waypoint set home 100 64 200`
+- **Remove a waypoint:** `/waypoint remove home`
+- **Locate a waypoint:** `/waypoint locate home`
+  - Gives you a glowing enchanted compass pointing to your waypoint
+  - The compass disappears when you are within a configurable distance (default: `stop_distance` in config)
+  - Tab completion for `/waypoint set` auto-suggests coordinates of the block you are looking at (like `/tp`)
+
+Waypoints are saved per-player in the `Finddata` folder as JSON files.
 
 ---
 
@@ -85,6 +104,11 @@ findbuddy.*:
   children:
     findbuddy.find: true
     findbuddy.cleanup: true
+    findbuddy.waypoint: true
+
+findbuddy.waypoint:
+  default: true
+  description: "Allows using waypoint commands"
 ```
 
 ---
